@@ -1,0 +1,11 @@
+penguin-clustering-analysis/
+├── data/
+│   └── hawks_clean.rds        # El único archivo que guardaremos tras el NB 01
+├── R/
+│   └── functions.R            # Un solo script (de momento) con todo, en acabar lo dividiré en varios
+├── notebooks/
+│   ├── 01_eda_prep.Rmd        # Limpieza y preparación
+│   ├── 02_kmeans.Rmd          # Modelado K-Means
+│   └── 03_dbscan_final.Rmd    # DBSCAN y Conclusiones Finales
+├── output/                    # Imágenes guardadas (opcional)
+└── penguin-clustering-analysis.Rproj

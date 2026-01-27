@@ -1,0 +1,5 @@
+El primer pas consisteix a carregar el conjunt de dades Hawks (disponible al paquet Stat2Data) dins del nostre entorn de R. Un cop carregat, iniciarem la fase d’inspecció.
+
+Aquest conjunt, Hawks, forma part d’un estudi longitudinal sobre falcons a l’estat d’Iowa. Conté observacions de tres espècies diferents (Cua-roja, Esparver i Falcó de Cooper), la qual cosa el converteix en un candidat adequat per a tasques d’agrupació.
+
+```{}
