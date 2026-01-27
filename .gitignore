@@ -1,0 +1,13 @@
+# --- RStudio and temporary files ---
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# --- Data and model objects ---
+*.RData
+*.Rds
+
+# --- System files ---
+.DS_Store
+Thumbs.db
