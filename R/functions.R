@@ -69,3 +69,98 @@ drop_high_na_columns <- function(df, threshold = 30) {
   # 2. Filtrar el dataframe usando el vector lógico
   return(df[, cols_to_keep])
 }
+
+
+
+
+
+#' Plot Biometric Distributions
+#'
+#' Generates a faceted grid of boxplots for all numeric variables in the dataset.
+#' This visualization is optimized for outlier detection using the IQR method.
+#'
+#' @param df A dataframe containing numeric biometric variables.
+#' @param fill_color Hex code or color name for the boxes (default: #69b3a2).
+#' @return A ggplot object with faceted boxplots.
+#' @export
+plot_biometric_outliers <- function(df, fill_color = "#69b3a2") {
+  df %>%
+    # 1. Seleccionamos solo las variables numéricas para el gráfico
+    dplyr::select(where(is.numeric)) %>%
+    # 2. Transformamos de formato 'ancho' a 'largo'
+    tidyr::pivot_longer(everything(), names_to = "Variable", values_to = "Value") %>%
+    # 3. Construimos el gráfico
+    ggplot2::ggplot(ggplot2::aes(x = "", y = Value)) +
+    ggplot2::geom_boxplot(
+      fill = fill_color, 
+      outlier.color = "red", 
+      outlier.shape = 16, 
+      outlier.size = 1.5,
+      width = 0.5
+    ) +
+    # 4. Creamos la rejilla compacta
+    ggplot2::facet_wrap(~Variable, scales = "free", ncol = 4) +
+    # 5. Estética profesional y compacta
+    ggplot2::theme_minimal() +
+    ggplot2::labs(
+      x = NULL, 
+      y = "Measurement Value",
+      title = "Biometric Outlier Analysis (IQR Method)",
+      subtitle = "Red dots represent points > 1.5x IQR"
+    ) +
+    ggplot2::theme(
+      strip.text = ggplot2::element_text(face = "bold"),
+      axis.text.x = ggplot2::element_blank(), # Eliminamos texto innecesario en X
+      panel.grid.minor = ggplot2::element_blank()
+    )
+}
+
+
+
+#' Impute Outliers with Median
+#'
+#' Identifies outliers using the IQR method (1.5x) and replaces them 
+#' with the column's median value.
+#'
+#' @param x A numeric vector.
+#' @return A numeric vector with outliers replaced by the median.
+impute_outliers_median <- function(x) {
+  # 1. Calculamos los cuartiles y el IQR
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr_val <- q3 - q1
+  
+  # 2. Definimos los límites
+  lower_bound <- q1 - 1.5 * iqr_val
+  upper_bound <- q3 + 1.5 * iqr_val
+  
+  # 3. Calculamos la mediana de los valores "sanos"
+  med_val <- median(x, na.rm = TRUE)
+  
+  # 4. Sustituimos los que se salgan de los límites
+  x_imputed <- ifelse(x < lower_bound | x > upper_bound, med_val, x)
+  
+  return(x_imputed)
+}
+
+
+
+
+#' KNN Missing Value Imputation
+#'
+#' Fills numeric NaNs using the k-Nearest Neighbors algorithm.
+#' @param df The dataframe to process.
+#' @param k Number of neighbors (default: 5).
+#' @return A dataframe with no missing values in numeric columns.
+impute_knn <- function(df, k = 5) {
+  # VIM handles the scaling and calculation automatically
+  # We select only numeric columns for the mathematical distance
+  df_numeric <- df %>% dplyr::select(where(is.numeric))
+  df_meta <- df %>% dplyr::select(!where(is.numeric))
+  
+  # Perform imputation
+  imputed_data <- VIM::kNN(df_numeric, k = k, imp_var = FALSE)
+  
+  # Recombine with non-numeric data (Species, etc.)
+  return(dplyr::bind_cols(df_meta, imputed_data))
+}

@@ -24,7 +24,7 @@ head(Hawks, 3)
 
 A preliminary inspection reveals a mix of numerical and categorical variables. We also observe missing data represented in two forms: explicit NA values (e.g., in StandardTail) and empty character strings (e.g., in ReleaseTime), which will require unification during preprocessing.
 
-## 1.1. Variable Dictionary
+## 1.1. Variable dictionary
 
 Si revisamos la fuente oficial del dataset (https://rdrr.io/rforge/Stat2Data/man/Hawks.html) podemos extraer informacion de cada varable:
 
@@ -66,6 +66,8 @@ En base a lo anterior podemos categoizar las variables en dos main groups:
 
 Note: We notice that Month, Day, and Year are stored as integers, but they are technically temporal metadata. For the purpose of biological clustering, we will focus exclusively on physical measurements to ensure the model groups the birds by their physical traits.
 
+## 1.2. Variable filtering
+
 According to that, we'll do a preventual filter, selecting only important features:
 1. Identifiers and Factors
       Species, Age, Sex, 
@@ -81,27 +83,89 @@ hawks_filtered <- refine_hawks_data(Hawks)
 # Check the dimensions
 dim(hawks_filtered)
 ```
+
+## 1.3. Varaible exploration
+
 Analicemoos ahora estas variables
 
 ```{r}
 summary(hawks_filtered)
 ```
 
-The summary analysis reveals three key issues that dictate our preprocessing strategy:
+The summary analysis reveals three key issues that dictate our preprocessing strategy.
 
-- Outliers: there are variables tienen clara predisposicion a tener outliers. El mejor ejemplo es Hallux. taht shows a maximum value of 341.4, which is biologically impossible given the median of 29.4. This outlier must be removed.
+- Outliers: Vemos que es posible  El mejor ejemplo es Hallux. taht shows a maximum value of 341.4, which is biologically impossible given the median of 29.4. This outlier must be removed.
 
 - NaN: Variables like Tarsus and WingPitFat contain >90% missing values. Including them would drastically reduce our sample size; therefore, they will be discarded. Cal destacar que summary() només reconeix els NA, per la qual cosa els buits ("") hauran de tractar-se per separat.
 
 - Scaling Requirements: Significant magnitude differences exist between features (e.g., Weight vs Culmen). Data standardization is mandatory to prevent distance-based algorithms from being biased toward high-scale variables
 
-Well center now on NaN. As we've seen there are variables with a lot of nan. Hau muchas maneras de tratar los nan: imputando, interpolando, eliminando... Aun asi, aquellos que tienen un gran % de nan la mejor opcion es siempre eliminarlos. Asi, nosotros conservaremos solo aquellos con <30% de na y mantendremos el resto para imputarlos en el rocesamiento. Recordemos que modelos que aplicaremos liuego (como k means) son sensibles a los nan.
+These issues are not merely statistical noise; they are critical roadblocks for clustering performance. The choice of algorithm—whether partition-based like K-means or density-based like DBSCAN—dictates how these flaws affect our results:Outliers & Structural Distortion: * In K-means, outliers can "pull" centroids toward extreme values, distorting the entire cluster structure or even creating artificial single-point clusters.DBSCAN is inherently more robust as it treats isolated points as "noise." However, a significant risk remains: an outlier located between two distinct high-density regions can act as a "bridge," causing the algorithm to merge two biologically separate groups into a single, incorrect cluster.The Structural Challenge of NaNs: * Missing values represent a fundamental obstacle for both models. Since clustering relies on distance calculations (Euclidean, Manhattan, etc.), any observation with a NaN becomes mathematically "invisible" or impossible to locate in the multi-dimensional space.Without imputation, we would be forced to discard these rows, severely limiting our sample size and potentially losing key representatives of specific hawk species.Scaling and Dimensional Bias: * The significant magnitude differences between features (e.g., Weight vs. Culmen) create a biased coordinate system. Without standardization, distance-based algorithms like K-means would be dominated by high-scale variables, effectively ignoring smaller but biologically significant measurements.In density-based models like OPTICS or DBSCAN, this lack of scaling would distort the "epsilon" ($\epsilon$) radius, stretching it along the axis of the largest variable and making it impossible to identify coherent, high-density clusters in the other dimensions.
+
+## 1.4. Absent values
+
+Well center now on NaN. As we've seen there are variables with a lot of nan. Hau muchas maneras de tratar los nan: imputando, interpolando, eliminando... Aun asi, aquellos que tienen un gran % de nan la mejor opcion es siempre eliminarlos. Asi, nosotros conservaremos solo aquellos con <30% de na y mantendremos el resto para imputarlos en el rocesamiento. No hay un % exacto, pero 30% es el gold standard: pruente pero sin ser demasaido etricto.
 
 ```{r}
 # Sourced from R/functions.R
-hawks_clean <- drop_high_na_columns(hawks_filtered, threshold = 30)
+hawks_no_na <- drop_high_na_columns(hawks_filtered, threshold = 30)
 
 # Verificamos qué columnas han sobrevivido
-names(hawks_clean)
+names(hawks_no_na)
 ```
- 
+
+Aun tenemos nan. Vamos a ver que tipo de nan tenemos:
+
+```{r}
+# Creamos un resumen rápido
+nan_audit <- data.frame(
+  Variable = names(hawks_no_na),
+  Tipo = sapply(hawks_no_na, class),
+  Missing_Values = sapply(hawks_no_na, function(x) sum(is.na(x)))
+)
+
+# Filtramos para ver solo las que tienen NaNs
+nan_audit %>% 
+  filter(Missing_Values > 0) %>%
+  arrange(desc(Missing_Values))
+```
+
+Vemos que son todas munericas , y que el num es relmente baoeso facilita el tratamiento de nan ya que los podemos tratar de manera. hay diferentes maneras de tratarlos, nosotros usaremos KNN. Unlike simple mean imputation, kNN preserves the multi-dimensional relationships between biological measurements. 
+
+How it works:Distance Mapping: The algorithm identifies the $k$ most similar observations (neighbors) based on Euclidean distance across all available features.Smart Filling: For a missing value (e.g., Hallux), kNN calculates the weighted average of its 5 nearest neighbors.Biological Logic: This assumes that birds with similar wing and weight profiles likely share similar claw sizes, maintaining the natural correlation of the species.Note: Feature scaling is crucial here. To prevent variables with larger magnitudes (like Weight) from dominating the distance calculation, we perform a temporary internal scaling during imputation.
+
+```{r}
+# Sourced from R/functions.R
+# We apply k=5 as a balanced trade-off between bias and variance
+hawks_imputed <- impute_knn(hawks_no_na, k = 5)
+
+# Verify that no NaNs remain in our target features
+colSums(is.na(hawks_imputed %>% select(where(is.numeric))))
+```
+
+## 1.5. Outliers
+
+le'ts handle outliers. There are many diferents maneras de descubrir un outlier. Una de las mas comunes, que usaremos aqui, es mediante el rant IQT. Mathematically, the IQR is calculated as:$$IQR = Q_3 - Q_1$$Where $Q_1$ is the 25th percentile and $Q_3$ is the 75th percentile. A data point is statistically considered an outlier if it falls outside the following boundaries:Lower Bound: $Q_1 - 1.5 \times IQR$Upper Bound: $Q_3 + 1.5 \times IQR$
+
+In a Boxplot, these points appear as individual dots beyond the "whiskers" or tails, allowing us to quickly spot biological impossibilities like our previously noted Hallux measurement. So we'll mex boxplots for numerical variables:
+
+```{r outlier_viz, fig.width=10, fig.height=6}
+# Simply call the function from R/functions.R
+plot_biometric_outliers(hawks_no_na)
+```
+Vemos que efectivamente, solo hallux tiene outliers. Al ser un num bajo de ouliers (7 puntos de 908 observaciones) lo resoveremos subtituyendolos por la mediana del atributo. Tecnicas mas avanazadas de  imputacion no son necesarias aqui debido al numero bajo. 
+
+```{r}
+# Aplicamos nuestra función de imputación
+hawks_clean <- hawks_no_na %>%
+  mutate(Hallux = impute_outliers_median(Hallux))
+
+# Verificación rápida: El máximo ya no debería ser 341
+summary(hawks_clean$Hallux)
+```
+
+
+## 1.6 Standarize
+
+## Visual representation
+
