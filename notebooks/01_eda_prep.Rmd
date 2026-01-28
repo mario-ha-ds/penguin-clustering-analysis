@@ -1,5 +1,107 @@
-El primer pas consisteix a carregar el conjunt de dades Hawks (disponible al paquet Stat2Data) dins del nostre entorn de R. Un cop carregat, iniciarem la fase d’inspecció.
+```{r}
+# We load all the librarys for this notebook
+library(Stat2Data)
+library(dplyr)
+library(purrr)
 
-Aquest conjunt, Hawks, forma part d’un estudi longitudinal sobre falcons a l’estat d’Iowa. Conté observacions de tres espècies diferents (Cua-roja, Esparver i Falcó de Cooper), la qual cosa el converteix en un candidat adequat per a tasques d’agrupació.
+# Cargamos las funciones externas
+source("../R/functions.R")
+```
 
-```{}
+# 1. Data loading and EDA
+
+We begin by loading the `Hawks` dataset from the `Stat2Data` package. TRhis dataset is a subset of a dataset orignial. Collected as part of a longitudinal study in Iowa and contains observations of three distinct species: Red-tailed, Sharp-shinned, and Cooper's Hawks. This multi-species structure makes it an ideal candidate for clustering analysis tasks.
+
+To verify the data load, we inspect the first three observations.
+
+```{r}
+# Load data
+data("Hawks")
+
+# Display the first 3 rows of the dataset
+head(Hawks, 3)
+```
+
+A preliminary inspection reveals a mix of numerical and categorical variables. We also observe missing data represented in two forms: explicit NA values (e.g., in StandardTail) and empty character strings (e.g., in ReleaseTime), which will require unification during preprocessing.
+
+## 1.1. Variable Dictionary
+
+Si revisamos la fuente oficial del dataset (https://rdrr.io/rforge/Stat2Data/man/Hawks.html) podemos extraer informacion de cada varable:
+
+A dataset with 908 observations on the following 19 variables.
+
+Month	code8=September to 12=December
+Day	Date in the month
+Year	Year: 1992-2003
+CaptureTime	Time of capture (HH:MM)
+ReleaseTime	Time of release (HH:MM)
+BandNumber	ID band code
+Species	CH=Cooper's, RT=Red-tailed, SS=Sharp-Shinned
+Age	A=Adult or I=Imature
+Sex	F=Female or M=Male
+Wing	Length (in mm) of primary wing feather from tip to wrist it attaches to
+Weight	Body weight (in gm)
+Culmen	Length (in mm) of the upper bill from the tip to where it bumps into the fleshy part of the bird
+Hallux	Length (in mm) of the killing talon
+Tail	Measurement (in mm) related to the length of the tail (invented at the MacBride Raptor Center)
+StandardTail	Standared measurement of tail length (in mm)
+Tarsus	Length of the basic foot bone (in mm)
+WingPitFat	Amount of fat in the wing pit
+KeelFat	Amount of fat on the breastbone (measured by feel
+Crop	Amount of material in the crop, coded from 1=full to 0=empty
+
+Per a una major comprensio del dataset, analizem els 10 primers valors valids (en cas que hi hagi) de cada variable:
+
+```{r}
+# Call the function from our sourced script
+valid_unique_values <- get_unique_valid_values(Hawks, 10)
+
+# Display results
+valid_unique_values
+```
+
+En base a lo anterior podemos categoizar las variables en dos main groups:
+- cATEGORICAL VARAIBLES (Factors): featuresw such Species, Age, and Sex. While Species will serve as our "Ground Truth" for external validation, others like CaptureTime or BandNumber provide metadata but lack predictive value for morphological clustering.
+- Numerical Variables (Biometric Measurements): Continuous variables like Wing, Weight or Culmen are the primary candidates for our clustering algorithms.
+
+Note: We notice that Month, Day, and Year are stored as integers, but they are technically temporal metadata. For the purpose of biological clustering, we will focus exclusively on physical measurements to ensure the model groups the birds by their physical traits.
+
+According to that, we'll do a preventual filter, selecting only important features:
+1. Identifiers and Factors
+      Species, Age, Sex, 
+2. Biometric Measurements
+      Wing, Weight, Culmen, Hallux, Tail, StandardTail, Tarsus,
+3. Physiological Indicators
+      WingPitFat, KeelFat, Crop
+
+```{r}
+# Apply the custom function from R/functions.R
+hawks_filtered <- refine_hawks_data(Hawks)
+
+# Check the dimensions
+dim(hawks_filtered)
+```
+Analicemoos ahora estas variables
+
+```{r}
+summary(hawks_filtered)
+```
+
+The summary analysis reveals three key issues that dictate our preprocessing strategy:
+
+- Outliers: there are variables tienen clara predisposicion a tener outliers. El mejor ejemplo es Hallux. taht shows a maximum value of 341.4, which is biologically impossible given the median of 29.4. This outlier must be removed.
+
+- NaN: Variables like Tarsus and WingPitFat contain >90% missing values. Including them would drastically reduce our sample size; therefore, they will be discarded. Cal destacar que summary() només reconeix els NA, per la qual cosa els buits ("") hauran de tractar-se per separat.
+
+- Scaling Requirements: Significant magnitude differences exist between features (e.g., Weight vs Culmen). Data standardization is mandatory to prevent distance-based algorithms from being biased toward high-scale variables
+
+Well center now on NaN. As we've seen there are variables with a lot of nan. Hau muchas maneras de tratar los nan: imputando, interpolando, eliminando... Aun asi, aquellos que tienen un gran % de nan la mejor opcion es siempre eliminarlos. Asi, nosotros conservaremos solo aquellos con <30% de na y mantendremos el resto para imputarlos en el rocesamiento. Recordemos que modelos que aplicaremos liuego (como k means) son sensibles a los nan.
+
+```{r}
+# Sourced from R/functions.R
+hawks_clean <- drop_high_na_columns(hawks_filtered, threshold = 30)
+
+# Verificamos qué columnas han sobrevivido
+names(hawks_clean)
+```
+ 

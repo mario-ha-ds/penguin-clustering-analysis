@@ -9,3 +9,18 @@ penguin-clustering-analysis/
 │   └── 03_dbscan_final.Rmd    # DBSCAN y Conclusiones Finales
 ├── output/                    # Imágenes guardadas (opcional)
 └── penguin-clustering-analysis.Rproj
+
+
+
+Eda:
+- primero describo el dataset
+- muestro un head
+- describo que significa cada varaible
+- luego hago 10 primeros valores (si hay) por cada variable
+- luego un summary
+- luego % nan por variable
+- luego outliers (segun rango IQT) graifcamente
+- graf freq. categorica (de specie i alguna mas si eso)
+- luego graf distribuciones numericas
+- luego graf de corr
+- pairplot
