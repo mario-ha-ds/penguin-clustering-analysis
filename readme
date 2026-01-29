@@ -1,0 +1,7 @@
+- Poner cosas sobre de donde sale el dataset i que contine
+
+- decir que tiene una variable supervisada target. no la usaremos para entrenar, y en un entorno realista no supervisado no existiria (de manera que la avalacion deberia ser solo interna) pero la usaremos tambien para una evalacion didactica externa
+
+- explicar los objetivos i como lo he llevado a cabo, asi como los dos modelos aplicados (i como funionan)
+
+- explciar fcomo descargar el repo y ejecutarlo

@@ -5,10 +5,10 @@ library(dplyr)
 library(purrr)
 
 # Cargamos las funciones externas
-source("../R/functions.R")
+source("../R/01_functions.R")
 ```
 
-# 1. Data loading and EDA
+# 1. EDA and data preprocessing
 
 We begin by loading the `Hawks` dataset from the `Stat2Data` package. TRhis dataset is a subset of a dataset orignial. Collected as part of a longitudinal study in Iowa and contains observations of three distinct species: Red-tailed, Sharp-shinned, and Cooper's Hawks. This multi-species structure makes it an ideal candidate for clustering analysis tasks.
 
@@ -60,21 +60,24 @@ valid_unique_values <- get_unique_valid_values(Hawks, 10)
 valid_unique_values
 ```
 
-En base a lo anterior podemos categoizar las variables en dos main groups:
-- cATEGORICAL VARAIBLES (Factors): featuresw such Species, Age, and Sex. While Species will serve as our "Ground Truth" for external validation, others like CaptureTime or BandNumber provide metadata but lack predictive value for morphological clustering.
-- Numerical Variables (Biometric Measurements): Continuous variables like Wing, Weight or Culmen are the primary candidates for our clustering algorithms.
+En base a lo anterior podemos categorizar las variables en dos grupos principales:
 
-Note: We notice that Month, Day, and Year are stored as integers, but they are technically temporal metadata. For the purpose of biological clustering, we will focus exclusively on physical measurements to ensure the model groups the birds by their physical traits.
+Categorical Variables (Factors): Features como Species, Age, Sex, o metadatos como month or BandNumber.
+
+Numerical Variables (Biometric Measurements): Variables continuas que representan medidas físicas como Wing, Weight, Culmen, etc.
 
 ## 1.2. Variable filtering
 
-According to that, we'll do a preventual filter, selecting only important features:
-1. Identifiers and Factors
-      Species, Age, Sex, 
-2. Biometric Measurements
-      Wing, Weight, Culmen, Hallux, Tail, StandardTail, Tarsus,
-3. Physiological Indicators
-      WingPitFat, KeelFat, Crop
+En esta etapa realizamos el primer gran filtro de información. 
+
+Para empezar, variables como Month, Year, CaptureTime o BandNumber son metadatos temporales o identificadores que no aportan información sobre la morfología del ave y, por tanto, no tienen valor predictivo para distinguir especies. Las eliminaremos.
+
+Para el siguiente paso, es fundamental entender nuestra estrategia bajo el prisma de los modelos de agrupación (K-means y DBSCAN), los cuales presentan restricciones y sensibilidades específicas. Ahora toca tratar todo el resto de cvategoricas que son realmente features de llas aves. Estas, al ser factors, no se pueden meter en nuestros modelos (ya que no aceptan factors solo numeros). Podriamos pensar en introducirlas tras hacer un encoding, pero  a diferencia de modelos basados en reglas o probabilidad (como Random Forest o Regresión Logística), donde el encoding es obligatorio y beneficioso, los modelos basados en distancia son extremadamente sensibles a la naturaleza de los datos.Si transformamos una variable como Age (Inmaduro=0, Adulto=1), estaríamos forzando una "barrera artificial" en el espacio euclídeo.
+Mientras que en las variables biométricas el continuo permite separar grupos de forma natural, una variable binaria o con pocos grupos tiende a forzar la creación de grupos basados en esa dicotomía, pudiendo enmascarar las diferencias biológicas reales entre especies. Ademas, variables como edad, no tienen una influencia REAL en la reparacion entre especies, sino mas bien una separacion dentro de la propia especie. Por tanto, todas las categoricas no nos sirven. 
+
+Por otro lado, al analizar el resumen estadístico, observamos que lasvariables  WingPitFat y KeelFat presentan un comportamiento pseudo-categórico o discreto. WingPitFat solo muestra 4 valores posibles y KeelFat apenas 8. Mantener estas variables no es objetivamente conveniente por dos razones críticas. En el clustering, estas variables crean acumulaciones de puntos en coordenadas idénticas, lo que dificulta la convergencia de los algoritmos hacia clústeres esféricos o densos. Ademas, no son tan untiles como las biometricas al momento de separa especies ya que ...
+
+Por todo ello, decidimos mantener únicamente las variables biométricas continuas para el entrenamiento, conservando Species exclusivamente como Ground Truth para la evaluación externa posterior
 
 ```{r}
 # Apply the custom function from R/functions.R
@@ -94,54 +97,51 @@ summary(hawks_filtered)
 
 The summary analysis reveals three key issues that dictate our preprocessing strategy.
 
-- Outliers: Vemos que es posible  El mejor ejemplo es Hallux. taht shows a maximum value of 341.4, which is biologically impossible given the median of 29.4. This outlier must be removed.
+- Outliers: Vemos indicios de que exiten. El mejor ejemplo es Hallux. taht shows a maximum value of 341.4, which is biologically impossible given the median of 29.4. 
 
-- NaN: Variables like Tarsus and WingPitFat contain >90% missing values. Including them would drastically reduce our sample size; therefore, they will be discarded. Cal destacar que summary() només reconeix els NA, per la qual cosa els buits ("") hauran de tractar-se per separat.
+- NaN: Hay variables con nan. Spm espcialmente relevantes Tarsus con mas de un 90% y StandardTail con 377 de 908 obsercaciones.
 
-- Scaling Requirements: Significant magnitude differences exist between features (e.g., Weight vs Culmen). Data standardization is mandatory to prevent distance-based algorithms from being biased toward high-scale variables
+- Scaling Requirements: Significant magnitude differences exist between features (e.g., Weight that arribes at ~2000g vs Culmen wix max ~39).
 
-These issues are not merely statistical noise; they are critical roadblocks for clustering performance. The choice of algorithm—whether partition-based like K-means or density-based like DBSCAN—dictates how these flaws affect our results:Outliers & Structural Distortion: * In K-means, outliers can "pull" centroids toward extreme values, distorting the entire cluster structure or even creating artificial single-point clusters.DBSCAN is inherently more robust as it treats isolated points as "noise." However, a significant risk remains: an outlier located between two distinct high-density regions can act as a "bridge," causing the algorithm to merge two biologically separate groups into a single, incorrect cluster.The Structural Challenge of NaNs: * Missing values represent a fundamental obstacle for both models. Since clustering relies on distance calculations (Euclidean, Manhattan, etc.), any observation with a NaN becomes mathematically "invisible" or impossible to locate in the multi-dimensional space.Without imputation, we would be forced to discard these rows, severely limiting our sample size and potentially losing key representatives of specific hawk species.Scaling and Dimensional Bias: * The significant magnitude differences between features (e.g., Weight vs. Culmen) create a biased coordinate system. Without standardization, distance-based algorithms like K-means would be dominated by high-scale variables, effectively ignoring smaller but biologically significant measurements.In density-based models like OPTICS or DBSCAN, this lack of scaling would distort the "epsilon" ($\epsilon$) radius, stretching it along the axis of the largest variable and making it impossible to identify coherent, high-density clusters in the other dimensions.
+These issues are not merely statistical noise; they are critical roadblocks for clustering performance. The choice of algorithm—whether partition-based like K-means or density-based like DBSCAN—dictates how these flaws affect our results:
+
+Outliers: In K-means, outliers can "pull" centroids toward extreme values, distorting the entire cluster structure or even creating artificial single-point clusters.DBSCAN is inherently more robust as it treats isolated points as "noise." However, a significant risk remains: an outlier located between two distinct high-density regions can act as a "bridge," causing the algorithm to merge two biologically separate groups into a single, incorrect cluster.
+
+NaNs: Missing values represent a fundamental obstacle for both models. Since clustering relies on distance calculations (Euclidean, Manhattan, etc.), any observation with a NaN becomes mathematically "invisible" or impossible to locate in the multi-dimensional space.Without imputation, we would be forced to discard these rows, severely limiting our sample size and potentially losing key representatives of specific hawk species.
+
+Scaling: The significant magnitude differences between features (e.g., Weight vs. Culmen) create a biased coordinate system. Without standardization, distance-based algorithms like K-means would be dominated by high-scale variables, effectively ignoring smaller but biologically significant measurements.In density-based models like OPTICS or DBSCAN, this lack of scaling would distort the "epsilon" ($\epsilon$) radius, stretching it along the axis of the largest variable and making it impossible to identify coherent, high-density clusters in the other dimensions.
+
+In conclusion, son 3 cosas qued ebeo arreglar. ojo, cabe aclarar que stas cosas no necesariamente son siempre fallos: depende del mdelo. quizas pejudcican a un k means, pero cosas  como nan  o outliers, en otros modelos (como ...) pueden ser entendidos como informacion en vez de como ruido.
 
 ## 1.4. Absent values
 
-Well center now on NaN. As we've seen there are variables with a lot of nan. Hau muchas maneras de tratar los nan: imputando, interpolando, eliminando... Aun asi, aquellos que tienen un gran % de nan la mejor opcion es siempre eliminarlos. Asi, nosotros conservaremos solo aquellos con <30% de na y mantendremos el resto para imputarlos en el rocesamiento. No hay un % exacto, pero 30% es el gold standard: pruente pero sin ser demasaido etricto.
+Well center now on NaN. Hau muchas maneras de tratar los nan: imputando, interpolando... Aun asi, aquellos que tienen un gran % de nan la mejor opcion es siempre eliminarlos para no generar sesgo en un gran volumen de datoss. Asi, nosotros conservaremos solo aquellos con <30% de na y mantendremos el resto para imputarlos en el rocesamiento. No hay un % exacto, pero 30% es el gold standard: pruente pero sin ser demasaido etricto.
 
 ```{r}
 # Sourced from R/functions.R
-hawks_no_na <- drop_high_na_columns(hawks_filtered, threshold = 30)
+hawks_na <- drop_high_na_columns(hawks_filtered, threshold = 30)
 
 # Verificamos qué columnas han sobrevivido
-names(hawks_no_na)
+names(hawks_na)
 ```
+Como vemos, hemos reducido el dataset a 7 variables, dos de ellas factors i otra numerica. Afortunadamente, las dos categoricas no tienen valores absentes (como vimos en el summary). Analicemos, pues, en las numericas, cuantos valores quedan:
 
-Aun tenemos nan. Vamos a ver que tipo de nan tenemos:
-
-```{r}
-# Creamos un resumen rápido
-nan_audit <- data.frame(
-  Variable = names(hawks_no_na),
-  Tipo = sapply(hawks_no_na, class),
-  Missing_Values = sapply(hawks_no_na, function(x) sum(is.na(x)))
-)
-
-# Filtramos para ver solo las que tienen NaNs
-nan_audit %>% 
-  filter(Missing_Values > 0) %>%
-  arrange(desc(Missing_Values))
-```
-
-Vemos que son todas munericas , y que el num es relmente baoeso facilita el tratamiento de nan ya que los podemos tratar de manera. hay diferentes maneras de tratarlos, nosotros usaremos KNN. Unlike simple mean imputation, kNN preserves the multi-dimensional relationships between biological measurements. 
-
-How it works:Distance Mapping: The algorithm identifies the $k$ most similar observations (neighbors) based on Euclidean distance across all available features.Smart Filling: For a missing value (e.g., Hallux), kNN calculates the weighted average of its 5 nearest neighbors.Biological Logic: This assumes that birds with similar wing and weight profiles likely share similar claw sizes, maintaining the natural correlation of the species.Note: Feature scaling is crucial here. To prevent variables with larger magnitudes (like Weight) from dominating the distance calculation, we perform a temporary internal scaling during imputation.
 
 ```{r}
 # Sourced from R/functions.R
-# We apply k=5 as a balanced trade-off between bias and variance
-hawks_imputed <- impute_knn(hawks_no_na, k = 5)
-
-# Verify that no NaNs remain in our target features
-colSums(is.na(hawks_imputed %>% select(where(is.numeric))))
+audit_nas(hawks_na)
 ```
+
+Debido a que es un numero pequeño de valores (max 10 NA de 908 obs), imputaciones avanzadas (como KNN) no son necesarias. Asi imputaremos con algo basico: la mediana. Porque esta? es facil y ademas, al contrario de la mitjana, no se ve afectado por otliers (como los de hallux).
+
+```{r}
+# Aplicamos la imputación
+hawks_imputed <- impute_median(hawks_na)
+
+# 3. Verificación final
+audit_nas(hawks_imputed)
+```
+
 
 ## 1.5. Outliers
 
@@ -151,21 +151,48 @@ In a Boxplot, these points appear as individual dots beyond the "whiskers" or ta
 
 ```{r outlier_viz, fig.width=10, fig.height=6}
 # Simply call the function from R/functions.R
-plot_biometric_outliers(hawks_no_na)
+plot_biometric_outliers(hawks_imputed)
 ```
-Vemos que efectivamente, solo hallux tiene outliers. Al ser un num bajo de ouliers (7 puntos de 908 observaciones) lo resoveremos subtituyendolos por la mediana del atributo. Tecnicas mas avanazadas de  imputacion no son necesarias aqui debido al numero bajo. 
+
+Vemos que solo hallux tiene outliers. Aunque es posible que sean ouliers biologicamente plausibles, al ser un num bajo de ouliers (7 puntos de 908 observaciones) y tener la capacidad de distorisionar al modelo, de nuevo, lo resoveremos subtituyendolos por la mediana del atributo. Tecnicas mas avanazadas de  imputacion no son necesarias aqui debido al numero bajo. 
 
 ```{r}
 # Aplicamos nuestra función de imputación
-hawks_clean <- hawks_no_na %>%
+hawks_no_out <- hawks_imputed %>%
   mutate(Hallux = impute_outliers_median(Hallux))
 
 # Verificación rápida: El máximo ya no debería ser 341
-summary(hawks_clean$Hallux)
+summary(hawks_no_out$Hallux)
+```
+
+## 1.7 Standarize
+
+El siguiente paso es estandarizar las variables numericas. Estandarizaremos con Z-score. La media pasa a ser 0 y la desviación estándar 1.La fórmula matemática que aplicaremos es:$$z = \frac{x - \mu}{\sigma}$$Donde $x$ es el valor original, $\mu$ la media y $\sigma$ la desviación estándar.
+
+```{r}
+# Convertimos todas las medidas a la misma escala (Z-score)
+hawks_final <- standardize_data(hawks_no_out)
+
+# Verificamos que la media ahora sea 0 (o casi 0) y el rango sea comparable
+hawks_final %>%
+  summarise(across(where(is.numeric), list(mean = mean, sd = sd)))
+```
+
+Llegados a este punto ya tenemos el dataset processado y limipio para el modelaje:
+
+```{r}
+head(hawks_final, 3)
 ```
 
 
-## 1.6 Standarize
+## 1.1 Visual representation
 
-## Visual representation
+Vamos a intentar entenderlo mejor, mediante represetnaciones visuales
 
+### 1.7.1 Freq graund truth
+
+### 1.7.2 Distribución de Numéricas
+
+### 1.7.3 Matriz de Correlación
+
+### 1.7.4 Pairplot
