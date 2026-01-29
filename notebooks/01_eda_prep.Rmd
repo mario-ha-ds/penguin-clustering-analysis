@@ -3,6 +3,9 @@
 library(Stat2Data)
 library(dplyr)
 library(purrr)
+library(ggplot2)
+library(corrplot)
+library(GGally)
 
 # Cargamos las funciones externas
 source("../R/01_functions.R")
@@ -15,10 +18,13 @@ We begin by loading the `Hawks` dataset from the `Stat2Data` package. TRhis data
 To verify the data load, we inspect the first three observations.
 
 ```{r}
-# Load data
-data("Hawks")
+# Cargamos el dataset desde la carpeta local /data. 
+# Nota: Aunque los datos están disponibles en la librería 'Stat2Data', 
+# usamos el archivo local (descargado en la fecha de creacion del proyecto) para garantizar la reproducibilidad y evitar 
+# inconsistencias ante futuras actualizaciones de la librería.
+Hawks <- read.csv("../data/Hawks.csv")
 
-# Display the first 3 rows of the dataset
+# Visualizamos las primeras 3 filas para confirmar la carga correcta
 head(Hawks, 3)
 ```
 
@@ -97,7 +103,7 @@ summary(hawks_filtered)
 
 The summary analysis reveals three key issues that dictate our preprocessing strategy.
 
-- Outliers: Vemos indicios de que exiten. El mejor ejemplo es Hallux. taht shows a maximum value of 341.4, which is biologically impossible given the median of 29.4. 
+- Outliers: Vemos indicios de que exiten. El mejor ejemplo es Hallux. taht shows a maximum value of 341.4, which is biologically impossible given the median of 29.4. It is probbably a human transcription error (there not exis this birds with 34cm of hallux).
 
 - NaN: Hay variables con nan. Spm espcialmente relevantes Tarsus con mas de un 90% y StandardTail con 377 de 908 obsercaciones.
 
@@ -130,7 +136,7 @@ Como vemos, hemos reducido el dataset a 7 variables, dos de ellas factors i otra
 ```{r}
 # Sourced from R/functions.R
 audit_nas(hawks_na)
-```
+``` 
 
 Debido a que es un numero pequeño de valores (max 10 NA de 908 obs), imputaciones avanzadas (como KNN) no son necesarias. Asi imputaremos con algo basico: la mediana. Porque esta? es facil y ademas, al contrario de la mitjana, no se ve afectado por otliers (como los de hallux).
 
@@ -171,28 +177,130 @@ El siguiente paso es estandarizar las variables numericas. Estandarizaremos con 
 
 ```{r}
 # Convertimos todas las medidas a la misma escala (Z-score)
-hawks_final <- standardize_data(hawks_no_out)
+hawks_norm <- standardize_data(hawks_no_out)
 
 # Verificamos que la media ahora sea 0 (o casi 0) y el rango sea comparable
-hawks_final %>%
+hawks_norm %>%
   summarise(across(where(is.numeric), list(mean = mean, sd = sd)))
 ```
 
 Llegados a este punto ya tenemos el dataset processado y limipio para el modelaje:
 
 ```{r}
-head(hawks_final, 3)
+head(hawks_norm, 3)
 ```
 
 
-## 1.1 Visual representation
+## 1.7 Visual representation
 
-Vamos a intentar entenderlo mejor, mediante represetnaciones visuales
+Vamos a intentar entender el dataset mejor, mediante represetnaciones visuales
 
 ### 1.7.1 Freq graund truth
 
-### 1.7.2 Distribución de Numéricas
+El primer paso es ver como esta distribuido nuestro graund truth.  
+
+```{r fig.width=7, fig.height=4, fig.align='center'}
+# Simply call the function from our sourced script
+plot_species_frequency(hawks_norm)
+```
+Vemis que las tritribuciones no son equivalentes, mientras la especie RT tiene 577 individuis, CH teiene un insignificante 70, mientra que ss 261. Esto implica que ... (como afectara al k means y a dbscan)
+
+### 1.7.2 Distribución de numéricas
+
+Pasemos a analizar como se distribuyen las variables numericas segun el grupo de verdad biologica mediante graficos de distribucion.
+
+```{r numeric_dist, fig.width=10, fig.height=7, fig.align='center'}
+# Generamos el panel de densidades y lo guardamos en output
+plot_numeric_distributions(hawks_norm, save_plot = TRUE)
+```
+En general, observamos una excelente separación entre grupos. Las "montañas" (densidades) muestran que los picos de cada especie no coinciden, lo que facilita la distinción morfológica.
+
+Culmen y Hallux parecen ser las mejores discriminadoras, seguidas de cerca por Weight y Wing. La variable Tail presenta el mayor solapamiento, especialmente entre CH y RT.
+
+Igualmente, la clara diferenciación de las distribuciones es una noticia excelente; sugiere que los algoritmos de clustering podrán identificar las especies con éxito basándose en estos perfiles biométricos diferenciados.
+
 
 ### 1.7.3 Matriz de Correlación
 
+Pasemos ahora a hacer un grafico de correlacion. Esto nos permitira analizar que tan relacionadas estan las variables y descrubir posibles redundancias
+
+```{r fig.width=8, fig.height=8, fig.align='center'}
+# Generamos y guardamos usando el código optimizado
+plot_correlation_matrix(hawks_norm, save_plot = TRUE)
+```
+El dataset presenta una correlación extremadamente alta en todas sus dimensiones. Los valores oscilan entre un 0.87 (mínimo, entre Weight y Tail) y un 0.95 (máximo, entre Culmen y Wing o Weight).
+
+En Data Science, valores superiores a 0.90 indican una redundancia casi total. Es decir, en este conjunto de datos las variables se comportan de forma síncrona (por ej, si el peso aumenta, el ala o la cola crecen proporcionalmente).
+
+Modelos como k means son sensibles a estas redundancias ... (explica como)
+
+Asi, debemos tratarlas. Aplicar un filtro de eliminación simple (umbral > 0.85) nos dejaría prácticamente con una sola variable. Por ello, en lugar de eliminar datos arbitrariamente, optaremos por la Reducción de Dimensionalidad mediante PCA en la siguiente fase.
+
 ### 1.7.4 Pairplot
+
+Como análisis final del EDA, integramos todas las métricas en un único visual para confirmar la estructura del espacio multivariante: un pairplot.
+
+```{r pairplot, fig.width=12, fig.height=10, fig.align='center', message=FALSE}
+# Generamos el mapa completo de relaciones y lo guardamos
+plot_pairplot(hawks_norm, save_plot = TRUE)
+```
+Este gráfico combina las densidades (diagonal), las correlaciones (superior) y los scatter plots (inferior), permitiendo extraer conclusiones críticas:
+
+Separación Física: Los gráficos de dispersión muestran nubes de puntos claramente desplazadas. Los Red-tailed (rojo) dominan el extremo superior derecho, confirmando que es la especie de mayor tamaño. Por el contrario, los Sharp-shinned (verde) se agrupan en el extremo inferior izquierdo, siendo la especie más pequeña. Los Cooper's (azul) se sitúan en una zona intermedia, solapándose ligeramente con los individuos más grandes de la especie verde.
+
+Morfología: La forma elíptica y estirada de las nubes confirma la alta linealidad del crecimiento de los halcones.
+
+Variabilidad por especie: Los coeficientes a la derecha revelan matices biológicos: en Wing vs Tail, la correlación es muy rígida para los verdes (0.87), pero mucho más dispersa para los azules (0.32), indicando que los Red-tailed poseen una variabilidad morfológica individual mucho mayor.
+
+En definitiva, la combinación de alta correlación y grupos físicamente separados justifica plenamente el uso de PCA para obtener el dataset final que alimentará nuestros modelos de clustering.
+
+## 1.8. Principal Component Analysis
+
+El PCA nos permite transformar estas variables correlacionadas en un nuevo conjunto de variables incorrelacionadas denominadas Componentes Principales (PCs).
+
+Los pasos son
+1. Estandarización paramedia 0 y varianza 1. esto ya lo hicimos previamente
+
+Matriz de Covarianza: Se calcula la matriz $C$ para entender cómo varían las variables entre sí.
+
+Descomposición en Autovalores y Autovectores: Resolvemos la ecuación característica:
+
+$$C\vec{v} = \lambda\vec{v}$$
+Los Autovectores ($\vec{v}$) definen la dirección de los nuevos ejes (los Componentes Principales).Los Autovalores ($\lambda$) indican la cantidad de varianza (información) que retiene cada componente.
+
+Proyección: Los datos originales se proyectan sobre estos nuevos ejes. El PC1 será la dirección con mayor dispersión de los datos, el PC2 la segunda, y así sucesivamente, siendo todos ortogonales (perpendiculares) entre sí.
+
+
+```{r}
+# Seleccionamos solo las columnas numéricas de nuestro dataset normalizado
+hawks_numeric <- hawks_norm %>% select(where(is.numeric))
+
+# Ejecutamos nuestra función manual
+pca_manual <- calculate_pca(hawks_numeric)
+
+# Mostramos los autovectores (Loadings)
+# Esto nos dice cuánto pesa cada variable original en cada PC
+print(pca_manual$vectors)
+```
+Esta tabla de loadings revela la estructura subyacente de tu dataset: el PC1 actúa como un índice de "size factor", ya que todas las variables (qque sonrelativas a tamaño) aportan de forma equitativa y con el mismo signo (negativo), confirmando la altísima correlación del EDA. El PC2 representa un factor de "forma o proporción", donde destaca la oposición entre el peso y la longitud de la cola (signos opuestos), permitiendo diferenciar aves robustas de aves estilizadas.El PC3 se especializa casi exclusivamente en la varianza del Hallux, dejando para los PC4 y PC5 los residuos técnicos y el ruido menor de variables como el ala y el culmen.
+
+Ahora bien, no nos vamos a quedar con todas podriamos (debido a que son pocas), lo ideal es siempre reducirlas ya que las ultimas suelen aportr solo ruido. lo normal es seleccionar las que expliquen la mayor parte de la varianc, usando por ejemlo el 90 % de ella cmo limite. Para escogerlas, las representaremos graficamente en un scree plot donde su altura represetne al varianza.
+
+```{r fig.width=8, fig.height=5, fig.align='center'}
+# Usamos los resultados del cálculo manual anterior
+plot_pca_variance(pca_manual)
+```
+Vemos que sorprendentemente la primera variable supera el 90% de varianza explicada. seguramente debido a ...
+Podriamos quedarnos y entrenar con ella, aunque modeloizas con solo una variable no es lo ideal. Asi, para ser conservadores, seleccionaremos tanto la pca1 como la pca2 (esta ultima podria darnos pequeños detalles sutiles) para el entreno, asegurando la vairanza explicada suficiente, sin multicolinealidad.
+
+Asi, como dataset final, generaremos un ultimo dataset que contenga la varaiable species (que usaremos para la avalaucion externa) i las dos pca. 
+
+```{r}
+# Llamamos a la función para crear el objeto en memoria
+hawks_pca_final <- create_pca_df(pca_manual, hawks_final$Species)
+
+# Verificamos que se haya creado bien
+head(hawks_pca_final, 3)
+```
+
+
