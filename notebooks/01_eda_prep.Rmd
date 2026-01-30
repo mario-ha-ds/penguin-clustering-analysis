@@ -1,17 +1,17 @@
 ```{r}
 # We load all the librarys for this notebook
+library(tidyverse) 
+library(corrplot) # Necesaria para plot_correlation_matrix
+library(GGally)   # Necesaria para plot_pairplot
 library(Stat2Data)
-library(dplyr)
-library(purrr)
-library(ggplot2)
-library(corrplot)
-library(GGally)
 
 # Cargamos las funciones externas
 source("../R/01_functions.R")
 ```
 
-# 1. EDA and data preprocessing
+# 1. Exploratory Data Analysis and Preprocessing
+
+## 1. Dataset loading 
 
 We begin by loading the `Hawks` dataset from the `Stat2Data` package. TRhis dataset is a subset of a dataset orignial. Collected as part of a longitudinal study in Iowa and contains observations of three distinct species: Red-tailed, Sharp-shinned, and Cooper's Hawks. This multi-species structure makes it an ideal candidate for clustering analysis tasks.
 
@@ -32,7 +32,7 @@ A preliminary inspection reveals a mix of numerical and categorical variables. W
 
 ## 1.1. Variable dictionary
 
-Si revisamos la fuente oficial del dataset (https://rdrr.io/rforge/Stat2Data/man/Hawks.html) podemos extraer informacion de cada varable:
+Si revisamos la fuente oficial del dataset (https://rdrr.io/rforge/Stat2Data/man/Hawks.html) podemos extraer informacion siguiente:
 
 A dataset with 908 observations on the following 19 variables.
 
@@ -70,7 +70,9 @@ En base a lo anterior podemos categorizar las variables en dos grupos principale
 
 Categorical Variables (Factors): Features como Species, Age, Sex, o metadatos como month or BandNumber.
 
-Numerical Variables (Biometric Measurements): Variables continuas que representan medidas físicas como Wing, Weight, Culmen, etc.
+Numerical Variables: Variables continuas que representan medidas físicas como Wing, Weight, Culmen, etc.
+
+Note: Species will be on our verdad biologica. Aunque en un trabajo realsta no supervisado, esta NO existiria, aqui la analizaremos en conjunto con el resto de varaibles por lo didactica de este proyecto.
 
 ## 1.2. Variable filtering
 
@@ -290,8 +292,9 @@ Ahora bien, no nos vamos a quedar con todas podriamos (debido a que son pocas), 
 # Usamos los resultados del cálculo manual anterior
 plot_pca_variance(pca_manual)
 ```
+
 Vemos que sorprendentemente la primera variable supera el 90% de varianza explicada. seguramente debido a ...
-Podriamos quedarnos y entrenar con ella, aunque modeloizas con solo una variable no es lo ideal. Asi, para ser conservadores, seleccionaremos tanto la pca1 como la pca2 (esta ultima podria darnos pequeños detalles sutiles) para el entreno, asegurando la vairanza explicada suficiente, sin multicolinealidad.
+Podriamos quedarnos y entrenar con ella, aunque modeloizas con solo una variable no es lo ideal. Asi, para ser conservadores, seleccionaremos tanto la pca1 como la pca2 (esta ultima podria darnos pequeños detalles sutiles) para el entreno, asegurando la vairanza explicada suficiente, sin multicolinealidad. Ademas, el escoger dos pca encaja perfectamente con los modelos que alicaremos (como porfundarizaremos en los siguientes notebooks).
 
 Asi, como dataset final, generaremos un ultimo dataset que contenga la varaiable species (que usaremos para la avalaucion externa) i las dos pca. 
 
@@ -303,4 +306,8 @@ hawks_pca_final <- create_pca_df(pca_manual, hawks_final$Species)
 head(hawks_pca_final, 3)
 ```
 
+Note: It is crucial to acknowledge that the current preprocessing workflow has been intentionally designed to align with the mathematical requirements of the selected algorithms. Different modeling approaches would have necessitated different data preparation strategies.
 
+Specifically, the K-means algorithm is the primary beneficiary of our pipeline. By applying Z-score normalization and PCA transformation, we have created an orthogonal feature space where variables are on a comparable scale and clusters are encouraged to take a "spherical" form. While DBSCAN is inherently more flexible regarding cluster shape and does not strictly require such rigid geometric conditions, both algorithms benefit from the elimination of noise and the reduction of dimensionality.
+
+Utilizing a single, standardized dataset allows for a direct and controlled comparison. Although this framework is optimized for K-means' rigid assumptions, it serves a higher analytical purpose: it enables us to test whether the natural groupings of the hawks are robust enough to be identified by fundamentally different clustering logics (centroid-based vs. density-based) within the same geometric environment.

@@ -1,0 +1,50 @@
+```{r}
+# We load all the librarys for this notebook
+library(tidyverse)
+
+# Cargamos las funciones externas
+source("../R/02_functions.R")
+```
+
+# 2. K-means clustering
+
+## 2.1 Theoretical foundations
+
+K-means is one of the most widely used unsupervised machine learning algorithms for partitioning a dataset into $K$ distinct, non-overlapping clusters. In this project, we apply it to the two firts Principal Components of our hawk dataset to discover natural morphometric groupings without using the original species labels. As it is a non-supervised model, we'll not include in the reaining te actual species labels.
+
+The algorithm works through an iterative process aimed at achieving local optima:Initialization: Selection of $K$ initial points as centroids.Assignment: Each observation is assigned to the cluster whose centroid is at the minimum distance.Update: Centroids are recalculated as the arithmetic mean ($\mu$) of all points assigned to the cluster.Convergence: The process repeats until assignments no longer change.
+
+The core of K-means is the concept of dissimilarity. The algorithm's behavior changes fundamentally depending on the distance metric used to calculate how "far" a point is from a centroid. Here we are going to use the default one: Euclidean Distance ($L_2$ norm). It calculates the straight-line distance. It is mathematically linked to the use of the mean as the cluster center and assumes clusters are roughly spherical and isotropic.$$d(\mathbf{x}, \boldsymbol{\mu}) = \sqrt{\sum_{j=1}^{p} (x_j - \mu_j)^2}$$ where $\mathbf{x}$ is a data point in the multi-dimensional space and $\boldsymbol{\mu}$ is the cluster centroid.
+
+We use the Squared Euclidean Distance because our PCA-transformed features are continuous, standardized, and orthogonal (no-correlacioadas), which fits the geometric assumptions of the $L_2$ norm perfectly.
+
+The algorithm minimizes the Total Within-Cluster Sum of Squares (WCSS), also known as Inertia. This represents the total variance within the clusters:$$\text{Minimize} \quad J = \sum_{i=1}^{K} \sum_{\mathbf{x} \in S_i} \|\mathbf{x} - \boldsymbol{\mu}_i\|^2$$Where $S_i$ is the $i$-th cluster and $\boldsymbol{\mu}_i$ is its centroid. A lower WCSS indicates more compact and cohesive clusters.
+
+## Finding the optimal K: elbow plot
+
+NOTA: De ahora en adelante (hasta llegar a la avaluacion externa) simualremos un escenario REAL de modelaje NO supervisado, i por tanto obviaremos la variable species i el hecho de que el dataset incluye 3 grupos de por si (i por tanbto el k verdadero es 3).
+
+Since K-means requires the number of clusters ($K$) as an input, we must determine the value that best represents the natural structure of the data. There are difierents methos to fint it but te more common one is using the elobw method.
+
+The Elbow Method consists of plotting the Total Within-Cluster Sum of Squares (WCSS) against the number of clusters. Mathematically, as $K$ increases, the WCSS inevitably decreases (reaching zero when each point is its own cluster). We look for the "elbow"—the point where the rate of decrease shifts significantly, indicating that adding more clusters provides diminishing returns in explaining the variance.
+
+```{r}
+# Load the processed dataset (we loead it form my version stored on data for reproducivitym, it is the result of he 01 notebook on the date of creating the project)
+hawks_pca <- read.csv("../data/hawks_pca_final.csv")
+
+# 3. Prepare data (Removing 'Species' for unsupervised learning)
+# We only use PC1 and PC2 for the model
+cluster_data <- hawks_pca %>% select(PC1, PC2)
+
+# 4. Run the Elbow Method
+wss_results <- calculate_wss_values(cluster_data, max_k = 10)
+
+# 5. Visualize
+plot_elbow(wss_results)
+```
+el elbow es claramente en k=2, es onde hay el cambio mas grande. No osbstante, k=3 e incluso (aunque con mucha menos contundencia) k=4 podrian ser argumentados, debido a que sigue disminuyendo de manera marcada (aunque infinitamente menos). A partir de el paso de 4->5 el cambio es pequeño y mas adelante minimo.
+
+Por tanto, el claro ganardor es 2 pero 3 debe ser considerado ya que sigue habiewndo una disminucion clara, aunq pequeña. Una buena practica es enrenar diferentes k means con diferentes k (cercanas al optimo encontado mediante metodos como el elbow plot) y luego avaluar cual es mejor. eso es lo que aharemos. por tanto entrenaremos con k=2, 3 i 4.
+
+## 2.3 Model implementation (K-means clustering)
+

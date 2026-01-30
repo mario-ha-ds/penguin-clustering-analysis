@@ -5,3 +5,5 @@
 - explicar los objetivos i como lo he llevado a cabo, asi como los dos modelos aplicados (i como funionan)
 
 - explciar fcomo descargar el repo y ejecutarlo
+
+- explicar que vamos a aplciar cosas no supervisadas en un dataset que tiene variable supervisada. Lo hacemos porque es un poryecto didactico, pero habra moentos (entrenamiento, avaluacion interna...) donde obviaremos dicha taret i suumularemos un escenario real.
